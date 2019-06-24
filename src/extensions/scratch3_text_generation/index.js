@@ -167,7 +167,7 @@ class Scratch3TextGeneration {
         const textPromise = new Promise(resolve => {    // this function will return a promise
 
             //dictionary mapping user's source choice to a URL to get the file from
-            let modelSourceDict = {'Dr. Seuss': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_test/models/seuss.json', 'Shakespeare': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_test/models/shakespeare.json', 'jokes': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_test/models/jokes.json'};
+            let modelSourceDict = {'Dr. Seuss': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/seuss.json', 'Shakespeare': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/shakespeare.json', 'jokes': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/jokes.json'};
             const endChars = [':', ',', ';', '-', '/'];
 
             let numWordsGenerated = length;    //initialize length, craziness, seed, and which model to use, and initialize output to the seed string
