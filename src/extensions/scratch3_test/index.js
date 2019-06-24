@@ -1,0 +1,237 @@
+const formatMessage = require('format-message');
+const nets = require('nets');
+
+const ArgumentType = require('../../extension-support/argument-type');
+const BlockType = require('../../extension-support/block-type');
+const Cast = require('../../util/cast');
+const MathUtil = require('../../util/math-util');
+const Clone = require('../../util/clone');
+const log = require('../../util/log');
+const tf = require('@tensorflow/tfjs');
+
+let uniqueChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890 \n.,;:!?'\"-()/";
+let vocabSize = uniqueChars.length;
+
+
+/**
+ * Class for the text generation blocks.
+ * @constructor
+ */
+class Scratch3Test {
+    constructor (runtime) {
+        this.craziness = 8;
+        this.mostRecentChars = '';
+        this.source = 'Dr. Seuss';
+    }
+
+    
+    /**
+     * @returns {object} metadata for this extension and its blocks.
+     */
+    getInfo () {
+        return {
+            id: 'test',
+            name: 'test',
+            
+            blocks: [
+                {
+                    opcode: 'genWords',
+                    text: '[LENGTH] words starting with [SEED]',
+                    blockType: BlockType.REPORTER,
+                    arguments: {
+                        LENGTH: {
+                            type: ArgumentType.NUMBER,
+                            defaultValue: 10
+                        },
+                        SEED: {
+                            type: ArgumentType.STRING,
+                            defaultValue: 'Scratch '
+                        }
+                    }
+                },
+                {
+                    opcode: 'genNextWord',
+                    text: 'next word',
+                    blockType: BlockType.REPORTER
+                },
+                {
+                    opcode: 'setCraziness',
+                    text: 'set craziness to [CRAZINESS]',
+                    blockType: BlockType.COMMAND,
+                    arguments: {
+                        CRAZINESS: {
+                            type: ArgumentType.NUMBER,
+                            defaultValue: 8
+                        }
+                    }
+                },
+                {
+                    opcode: 'getCraziness',
+                    text: 'craziness',
+                    blockType: BlockType.REPORTER
+                },
+                {
+                    opcode: 'setSource',
+                    text: 'set source to [SOURCE]',
+                    blockType: BlockType.COMMAND,
+                    arguments: {
+                        SOURCE: {
+                            type: ArgumentType.STRING,
+                            menu: 'sourceText',
+                            defaultValue: 'Dr. Seuss'
+                        }
+                    }
+                },
+                {
+                    opcode: 'getSource',
+                    text: 'source',
+                    blockType: BlockType.REPORTER
+                }
+            ],
+            menus: {
+                sourceText: ['Dr. Seuss', 'Shakespeare', 'jokes']
+            }
+        };
+    }
+
+    toOneHot (inputText) {  //Converts a string to a one-hot array to be used in training the model
+        let tempArray = [];
+        for (const c of inputText) {
+            tempArray.push(uniqueChars.indexOf(c));
+        }
+        let oneHotTensor = tf.oneHot(tf.tensor1d(tempArray, 'int32'), vocabSize);
+        let tensorArray = oneHotTensor.array();
+
+        return tensorArray
+    };
+
+    toOneHotCustom(inputText) { //Converts a string to a one-hot array to be used in training the model
+        let tempArray = [];
+        let oneHotArray = []
+        for (const c of inputText) {
+            tempArray.push(uniqueChars.indexOf(c));
+        }
+        for (let i = 0; i < tempArray.length; i++) {
+            oneHotArray[i] = new Array(vocabSize).fill(0);
+            oneHotArray[i][tempArray[i]] = 1;
+        }
+        return oneHotArray;
+    }
+
+    getNext (values, indices, craziness) { //returns the next predicted character based on a stochastically chosen index
+        values = values.map(x => Math.pow(x, 10 - craziness))   //raise all values to the power (10 - craziness) so that they are more or less similar
+        let nextIndex = 0;
+        const add = (a, b) => a + b;
+        let sum = values.reduce(add);
+        let tempSum = 0;
+        let rand = Math.random();
+        for (let j = 0; j < indices.length; j++) {  //stochastically choose which index to use
+            if (values[j]/sum + tempSum > rand) {
+                nextIndex = indices[j];
+                break;
+            }
+            tempSum += values[j]/sum;
+        }
+        return uniqueChars[nextIndex];  //translate index to character
+    }
+
+    processInput (model, seed) {    //ensure that the input seed is the right size to be used as input to the model
+
+        let inputDim = model.layers[0].input.shape[1];
+
+        while (seed.length < inputDim) {    //pad the beginning of the input with stars
+            seed = '*' + seed;
+        }
+        while (seed.length > inputDim) {    //only consider last inputDim characters
+            seed = seed.slice(1);
+        }
+
+        return seed;
+    }
+
+    genWords (args) {
+        return this.generateText(args.LENGTH, args.SEED);
+    }
+
+    genNextWord (args) {
+        const wordPromise = new Promise(resolve => {
+            this.generateText(2, this.mostRecentChars).then(text => {
+                resolve(text.slice(Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'))));
+                return text.slice(Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n')));
+            });
+        });
+        return wordPromise;
+    }
+
+    generateText (length, seedStr) {
+        const textPromise = new Promise(resolve => {    // this function will return a promise
+
+            //dictionary mapping user's source choice to a URL to get the file from
+            let modelSourceDict = {'Dr. Seuss': 'http://localhost:8080/seuss.json', 'Shakespeare': 'http://localhost:8080/shakespeare.json', 'jokes': 'http://localhost:8080/jokes.json'};
+            const endChars = [':', ',', ';', '-', '/'];
+
+            let numWordsGenerated = length;    //initialize length, craziness, seed, and which model to use, and initialize output to the seed string
+            let craziness = MathUtil.clamp(this.craziness, 0, 10);
+            let seedString = seedStr;
+            let modelSource = modelSourceDict[this.source];
+            let output = seedString;
+
+            tf.loadLayersModel(modelSource).then(model => { //load model
+
+                seedString = this.processInput(model, seedString);  //make sure the input has the right dimensions
+
+                let w = 0;  //0 words so far, not between words
+                let betweenWords = false;
+
+                while (w < numWordsGenerated) { //while more words need to be generated
+                    let seed = this.toOneHotCustom(seedString);
+
+                    let inputTensor = tf.tensor([seed]);    //create a tensor to use as input to the model
+                    let prediction = model.predict(inputTensor);    //make a prediction
+                    let {values, indices} = tf.topk(prediction, 10);    //create arrays of indices (can be translated to characters) and values (their probabilities) based on the prediction
+                    let valuesArray = values.dataSync();
+                    let indicesArray = indices.dataSync();
+
+                    let nextChar = this.getNext(valuesArray, indicesArray, craziness); //choose a next character
+
+                    if (!betweenWords && (nextChar == ' ' || nextChar == '\n')) {   //find spaces between words
+                        w++;
+                        betweenWords = true;
+                    } else if (!(nextChar == ' ' || nextChar == '\n')) {
+                        betweenWords = false;
+                    }
+
+                    if (w < numWordsGenerated) {
+                        seedString = seedString.slice(1);   //make a new seed which includes the new character
+                        seedString += nextChar;
+
+                        if (w < numWordsGenerated - 1 || !endChars.includes(nextChar)) {    //don't end the string with any of the characters in endChars
+                            output += nextChar; //add the new character to the output
+                        }
+                    }
+                }
+                this.mostRecentChars = output.slice(-20);
+                resolve(output);
+                return output;
+            });
+        });
+        return textPromise;
+    }
+
+    setCraziness (args) {
+        this.craziness = args.CRAZINESS;
+    }
+
+    getCraziness (args) {
+        return this.craziness;
+    }
+
+    setSource (args) {
+        this.source = args.SOURCE;
+    }
+
+    getSource (args) {
+        return this.source;
+    }
+}
+module.exports = Scratch3Test;
