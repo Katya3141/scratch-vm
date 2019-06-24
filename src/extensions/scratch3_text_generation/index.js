@@ -17,7 +17,7 @@ let vocabSize = uniqueChars.length;
  * Class for the text generation blocks.
  * @constructor
  */
-class Scratch3Test {
+class Scratch3TextGeneration {
     constructor (runtime) {
         this.craziness = 8;
         this.mostRecentChars = '';
@@ -30,8 +30,8 @@ class Scratch3Test {
      */
     getInfo () {
         return {
-            id: 'test',
-            name: 'test',
+            id: 'textGeneration',
+            name: 'Video Sensing',
             
             blocks: [
                 {
@@ -167,7 +167,7 @@ class Scratch3Test {
         const textPromise = new Promise(resolve => {    // this function will return a promise
 
             //dictionary mapping user's source choice to a URL to get the file from
-            let modelSourceDict = {'Dr. Seuss': 'http://localhost:8080/seuss.json', 'Shakespeare': 'http://localhost:8080/shakespeare.json', 'jokes': 'http://localhost:8080/jokes.json'};
+            let modelSourceDict = {'Dr. Seuss': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_test/models/seuss.json', 'Shakespeare': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_test/models/shakespeare.json', 'jokes': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_test/models/jokes.json'};
             const endChars = [':', ',', ';', '-', '/'];
 
             let numWordsGenerated = length;    //initialize length, craziness, seed, and which model to use, and initialize output to the seed string
@@ -234,4 +234,4 @@ class Scratch3Test {
         return this.source;
     }
 }
-module.exports = Scratch3Test;
+module.exports = Scratch3TextGeneration;
