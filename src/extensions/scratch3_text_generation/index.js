@@ -31,7 +31,7 @@ class Scratch3TextGeneration {
     getInfo () {
         return {
             id: 'textGeneration',
-            name: 'Video Sensing',
+            name: 'Text Generation',
             
             blocks: [
                 {
@@ -119,6 +119,10 @@ class Scratch3TextGeneration {
     }
 
     getNext (values, indices, craziness) { //returns the next predicted character based on a stochastically chosen index
+        if (craziness == 0) {
+            return uniqueChars[indices[values.indexOf(Math.max(...values))]];
+        }
+
         values = values.map(x => Math.pow(x, 10 - craziness))   //raise all values to the power (10 - craziness) so that they are more or less similar
         let nextIndex = 0;
         const add = (a, b) => a + b;
