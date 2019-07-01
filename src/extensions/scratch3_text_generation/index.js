@@ -52,7 +52,8 @@ class Scratch3TextGeneration {
                 {
                     opcode: 'genNextWord',
                     text: 'next word',
-                    blockType: BlockType.REPORTER
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true
                 },
                 {
                     opcode: 'setCraziness',
@@ -64,11 +65,6 @@ class Scratch3TextGeneration {
                             defaultValue: 8
                         }
                     }
-                },
-                {
-                    opcode: 'getCraziness',
-                    text: 'craziness',
-                    blockType: BlockType.REPORTER
                 },
                 {
                     opcode: 'setSource',
@@ -83,29 +79,23 @@ class Scratch3TextGeneration {
                     }
                 },
                 {
+                    opcode: 'getCraziness',
+                    text: 'craziness',
+                    blockType: BlockType.REPORTER
+                },
+                {
                     opcode: 'getSource',
                     text: 'source',
                     blockType: BlockType.REPORTER
                 }
             ],
             menus: {
-                sourceText: ['Dr. Seuss', 'Shakespeare', 'jokes']
+                sourceText: ['Dr. Seuss', 'Shakespeare', 'jokes', 'Warriors']
             }
         };
     }
 
-    toOneHot (inputText) {  //Converts a string to a one-hot array to be used in training the model
-        let tempArray = [];
-        for (const c of inputText) {
-            tempArray.push(uniqueChars.indexOf(c));
-        }
-        let oneHotTensor = tf.oneHot(tf.tensor1d(tempArray, 'int32'), vocabSize);
-        let tensorArray = oneHotTensor.array();
-
-        return tensorArray
-    };
-
-    toOneHotCustom(inputText) { //Converts a string to a one-hot array to be used in training the model
+    toOneHot(inputText) { //Converts a string to a one-hot array to be used in training the model
         let tempArray = [];
         let oneHotArray = []
         for (const c of inputText) {
@@ -123,7 +113,7 @@ class Scratch3TextGeneration {
             return uniqueChars[indices[values.indexOf(Math.max(...values))]];
         }
 
-        values = values.map(x => Math.pow(x, 10 - craziness))   //raise all values to the power (10 - craziness) so that they are more or less similar
+        values = values.map(x => Math.pow(x, 10 - craziness))   //raise all values to the power (10 - craziness) so that they become more or less similar
         let nextIndex = 0;
         const add = (a, b) => a + b;
         let sum = values.reduce(add);
@@ -146,9 +136,7 @@ class Scratch3TextGeneration {
         while (seed.length < inputDim) {    //pad the beginning of the input with stars
             seed = '*' + seed;
         }
-        while (seed.length > inputDim) {    //only consider last inputDim characters
-            seed = seed.slice(1);
-        }
+        seed = seed.slice(seed.length-inputDim);    //only consider the last inputDim characters
 
         return seed;
     }
@@ -160,8 +148,9 @@ class Scratch3TextGeneration {
     genNextWord (args) {
         const wordPromise = new Promise(resolve => {
             this.generateText(2, this.mostRecentChars).then(text => {
-                resolve(text.slice(Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'))));
-                return text.slice(Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n')));
+                nextWord = text.slice(Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n')));
+                resolve(nextWord);
+                return nextWord;
             });
         });
         return wordPromise;
@@ -171,24 +160,26 @@ class Scratch3TextGeneration {
         const textPromise = new Promise(resolve => {    // this function will return a promise
 
             //dictionary mapping user's source choice to a URL to get the file from
-            let modelSourceDict = {'Dr. Seuss': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/seuss.json', 'Shakespeare': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/shakespeare.json', 'jokes': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/jokes.json'};
-            const endChars = [':', ',', ';', '-', '/'];
+            let modelSourceDict = {'Dr. Seuss': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/seuss.json',
+                                    'Shakespeare': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/shakespeare.json',
+                                    'jokes': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/jokes.json',
+                                    'Warriors': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/warriorcats.json'};
 
-            let numWordsGenerated = length;    //initialize length, craziness, seed, and which model to use, and initialize output to the seed string
-            let craziness = MathUtil.clamp(this.craziness, 0, 10);
-            let seedString = seedStr;
+            const endChars = [':', ',', ';', '-', '/']; //when generating strings, don't end with any of these characters
+
+            let craziness = MathUtil.clamp(this.craziness, 0, 10);  //initialize craziness and which model to use, and initialize output to the seed string
             let modelSource = modelSourceDict[this.source];
-            let output = seedString;
+            let output = seedStr;
 
             tf.loadLayersModel(modelSource).then(model => { //load model
 
-                seedString = this.processInput(model, seedString);  //make sure the input has the right dimensions
+                seedStr = this.processInput(model, seedStr);  //make sure the input has the right dimensions
 
                 let w = 0;  //0 words so far, not between words
                 let betweenWords = false;
 
-                while (w < numWordsGenerated) { //while more words need to be generated
-                    let seed = this.toOneHotCustom(seedString);
+                while (w < length) { //while more words need to be generated
+                    let seed = this.toOneHot(seedStr);
 
                     let inputTensor = tf.tensor([seed]);    //create a tensor to use as input to the model
                     let prediction = model.predict(inputTensor);    //make a prediction
@@ -205,11 +196,11 @@ class Scratch3TextGeneration {
                         betweenWords = false;
                     }
 
-                    if (w < numWordsGenerated) {
-                        seedString = seedString.slice(1);   //make a new seed which includes the new character
-                        seedString += nextChar;
+                    if (w < length) {
+                        seedStr = seedStr.slice(1);   //make a new seed which includes the new character
+                        seedStr += nextChar;
 
-                        if (w < numWordsGenerated - 1 || !endChars.includes(nextChar)) {    //don't end the string with any of the characters in endChars
+                        if (w < length - 1 || !endChars.includes(nextChar)) {    //don't end the string with any of the characters in endChars
                             output += nextChar; //add the new character to the output
                         }
                     }

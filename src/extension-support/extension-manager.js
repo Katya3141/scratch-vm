@@ -25,7 +25,10 @@ const builtinExtensions = {
     makeymakey: () => require('../extensions/scratch3_makeymakey'),
     boost: () => require('../extensions/scratch3_boost'),
     gdxfor: () => require('../extensions/scratch3_gdx_for'),
-    textGeneration: () => require('../extensions/scratch3_text_generation')
+    teachableClassifier: () => require('../extensions/scratch3_teachable_classifier'),
+    textGeneration: () => require('../extensions/scratch3_text_generation'),
+    speechCommands: () => require('../extensions/scratch3_speech_commands'),
+    weather: () => require('../extensions/scratch3_weather')
 };
 
 /**
