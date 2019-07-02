@@ -90,7 +90,7 @@ class Scratch3TextGeneration {
                 }
             ],
             menus: {
-                sourceText: ['Dr. Seuss', 'Shakespeare', 'jokes', 'Warriors']
+                sourceText: ['Dr. Seuss', 'Shakespeare', 'jokes', 'Warriors', 'Moby Dick']
             }
         };
     }
@@ -163,7 +163,8 @@ class Scratch3TextGeneration {
             let modelSourceDict = {'Dr. Seuss': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/seuss.json',
                                     'Shakespeare': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/shakespeare.json',
                                     'jokes': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/jokes.json',
-                                    'Warriors': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/warriorcats.json'};
+                                    'Warriors': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/warriorcats.json',
+                                    'Moby Dick': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/mobydick.json'};
 
             const endChars = [':', ',', ';', '-', '/']; //when generating strings, don't end with any of these characters
 

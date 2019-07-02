@@ -6,6 +6,7 @@ const BlockType = require('../../extension-support/block-type');
 const Cast = require('../../util/cast');
 const MathUtil = require('../../util/math-util');
 const Clone = require('../../util/clone');
+const Video = require('../../io/video');
 const log = require('../../util/log');
 const tf = require('@tensorflow/tfjs');
 const mobilenet = require('@tensorflow-models/mobilenet');
@@ -29,7 +30,7 @@ let vocabSize = uniqueChars.length;
  */
 class Scratch3TeachableClassifier {
     constructor (runtime) {
-
+        this.runtime = runtime;
     }
 
     
@@ -37,19 +38,17 @@ class Scratch3TeachableClassifier {
      * @returns {object} metadata for this extension and its blocks.
      */
     getInfo () {
+        this.runtime.ioDevices.video.enableVideo();
+
         return {
             id: 'teachableClassifier',
             name: 'Teachable Classifier',
             blocks: [
                 {
-                    opcode: 'newExample',
-                    text: 'add example [EXAMPLE] with label [LABEL]',
+                    opcode: 'imageExample',
+                    text: 'add example from video with label [LABEL]',
                     blockType: BlockType.COMMAND,
                     arguments: {
-                        EXAMPLE: {
-                            type: ArgumentType.STRING,
-                            defaultValue: 'cat'
-                        },
                         LABEL: {
                             type: ArgumentType.STRING,
                             defaultValue: 'class 1'
@@ -57,15 +56,9 @@ class Scratch3TeachableClassifier {
                     }
                 },
                 {
-                    opcode: 'getClass',
-                    text: 'predict label for [INPUT]',
-                    blockType: BlockType.REPORTER,
-                    arguments: {
-                        INPUT: {
-                            type: ArgumentType.STRING,
-                            defaultValue: 'cat'
-                        }
-                    }
+                    opcode: 'predictImageLabel',
+                    text: 'predict image label',
+                    blockType: BlockType.REPORTER
                 },
                 {
                     opcode: 'clearAll',
@@ -100,27 +93,35 @@ class Scratch3TeachableClassifier {
         return tf.tensor([oneHotArray]);
     }
 
-    newExample (args) {
+    imageExample (args) {
         if (mobilenetLoaded) {  //check that the mobilenet has loaded
-            const example = mobilenetModule.infer(this.toOneHot(args.EXAMPLE)); //add example
+            const frame = this.runtime.ioDevices.video.getFrame({
+                format: Video.FORMAT_IMAGE_DATA,
+                dimensions: [480, 360]
+            });
+            const example = mobilenetModule.infer(frame); //add example
             classifier.addExample(example, args.LABEL);
         } else {
-            return '[still loading model...]'   //if mobilenet not loaded yet, return "still loading" message
+            return '[still loading module...]'   //if mobilenet not loaded yet, return "still loading" message
         }
     }
 
-    getClass (args) {
+    predictImageLabel () {
         if (classifier.getNumClasses() > 0) {
             const wordPromise = new Promise(resolve => {
                 if (mobilenetLoaded) {  //check that the mobilenet has loaded
-                    input = mobilenetModule.infer(this.toOneHot(args.INPUT));   //predict
+                    const frame = this.runtime.ioDevices.video.getFrame({
+                        format: Video.FORMAT_IMAGE_DATA,
+                        dimensions: [480, 360]
+                    });
+                    input = mobilenetModule.infer(frame);   //predict
                     classifier.predictClass(input).then(result => {
                         resolve(result.label);
                         return result.label;
                     })
                 } else {
-                    resolve('[still loading model...]');    //if mobilenet not loaded yet, return "still loading" message
-                    return '[still loading model...]';
+                    resolve('[still loading module...]');    //if mobilenet not loaded yet, return "still loading" message
+                    return '[still loading module...]';
                 }
             });
             return wordPromise;
@@ -133,7 +134,9 @@ class Scratch3TeachableClassifier {
     }
 
     clearAllWithLabel (args) {
-        classifier.clearClass(args.LABEL);  //clear examples with a certain label
+        if (classifier.getClassExampleCount(args.LABEL) > 0) {
+            classifier.clearClass(args.LABEL);  //clear examples with a certain label
+        }
     }
 }
 module.exports = Scratch3TeachableClassifier;
