@@ -134,7 +134,7 @@ class Scratch3TeachableClassifier {
     }
 
     clearAllWithLabel (args) {
-        if (classifier.getClassExampleCount(args.LABEL) > 0) {
+        if (classifier.getClassExampleCount()[args.LABEL] > 0) {
             classifier.clearClass(args.LABEL);  //clear examples with a certain label
         }
     }

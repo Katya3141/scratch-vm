@@ -25,6 +25,9 @@ class Scratch3SpeechCommands {
         this.newCommand = '';   //resets every time there's only _background_noise_ or _unknown_
         this.mostRecentCommand = '';    //does not reset until there's a new command
         this.listening = false;
+
+        this.stopListening = this.stopListening.bind(this);
+        this.runtime.on('PROJECT_STOP_ALL', this.stopListening);
     }
 
     
@@ -92,6 +95,14 @@ class Scratch3SpeechCommands {
                     invokeCallbackOnNoiseAndUnknown: true
                 });
             });
+        }
+    }
+
+    stopListening () {
+        if (this.listening) {
+            recognizer.stopListening();
+            this.runtime.emitMicListening(false);
+            this.listening = false;
         }
     }
 
