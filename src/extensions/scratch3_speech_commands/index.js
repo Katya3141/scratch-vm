@@ -72,7 +72,7 @@ class Scratch3SpeechCommands {
 
     whenIHear (word) {
         this.startListening();
-        return this.newCommand == word.COMMAND;  //return true if the previous command was the word being listened for, false otherwise
+        return this.newCommand == word.COMMAND;  //return true if the previous command was the target word, false otherwise
     }
 
     startListening () {
@@ -83,7 +83,7 @@ class Scratch3SpeechCommands {
                 recognizer.listen(result => {
                     let maxScore = Math.max(...result.scores);
                     let command = recognizer.wordLabels()[result.scores.indexOf(maxScore)];
-                    if (maxScore > 0.8 && command != '_background_noise_' && command != '_unknown_') {
+                    if (maxScore > 0.8 && command != '_background_noise_' && command != '_unknown_') {  //if it recognized a word with high enough probability, set both commands to that word; otherwise reset newCommand
                         console.log(command);
                         this.newCommand = command;
                         this.mostRecentCommand = command;
@@ -100,7 +100,7 @@ class Scratch3SpeechCommands {
 
     stopListening () {
         if (this.listening) {
-            recognizer.stopListening();
+            recognizer.stopListening(); //stop the recognizer from listening
             this.runtime.emitMicListening(false);
             this.listening = false;
         }

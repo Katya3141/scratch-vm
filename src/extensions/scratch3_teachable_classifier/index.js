@@ -11,18 +11,9 @@ const log = require('../../util/log');
 const tf = require('@tensorflow/tfjs');
 const mobilenet = require('@tensorflow-models/mobilenet');
 const knnClassifierModule = require('@tensorflow-models/knn-classifier');
-//const w2v = require('word2vec');
 
 const classifier = knnClassifierModule.create();
-let mobilenetLoaded = false;
-let mobilenetModule = null;
-mobilenet.load().then(m => {
-    mobilenetLoaded = true;
-    mobilenetModule = m;
-});
 
-let uniqueChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890 .,;:!?'\"-()/";
-let vocabSize = uniqueChars.length;
 
 /**
  * Class for the teachable classifier blocks.
@@ -31,6 +22,72 @@ let vocabSize = uniqueChars.length;
 class Scratch3TeachableClassifier {
     constructor (runtime) {
         this.runtime = runtime;
+        this.predictedLabel = null;
+        this.labelList = [' '];
+        this.mobilenetModule = null;
+
+        mobilenet.load(1, 0.5).then(net => {
+            this.mobilenetModule = net;
+            if (this.runtime.ioDevices) {
+                // Kick off looping the analysis logic.
+                this._loop();
+            }
+        });
+
+        /**
+         * The last millisecond epoch timestamp that the video stream was
+         * analyzed.
+         * @type {number}
+         */
+        this._lastUpdate = null;
+    }
+
+    /**
+     * After analyzing a frame the amount of milliseconds until another frame
+     * is analyzed.
+     * @type {number}
+     */
+    static get INTERVAL () {
+        return 100;
+    }
+
+    /**
+     * Dimensions the video stream is analyzed at after its rendered to the
+     * sample canvas.
+     * @type {Array.<number>}
+     */
+    static get DIMENSIONS () {
+        return [480, 360];
+    }
+
+    /**
+     * Occasionally step a loop to sample the video and predict the current label
+     * @private
+     */
+    _loop () {
+        setTimeout(this._loop.bind(this), Math.max(this.runtime.currentStepTime, Scratch3TeachableClassifier.INTERVAL));
+
+        const time = Date.now();
+        if (this._lastUpdate === null) {
+            this._lastUpdate = time;
+        }
+        const offset = time - this._lastUpdate;
+        if (offset > Scratch3TeachableClassifier.INTERVAL) {
+            if (classifier.getNumClasses() > 0) {
+                const frame = this.runtime.ioDevices.video.getFrame({
+                    format: Video.FORMAT_IMAGE_DATA,
+                    dimensions: Scratch3TeachableClassifier.DIMENSIONS
+                });
+                if (frame) {
+                    input = this.mobilenetModule.infer(frame);   //predict
+                    classifier.predictClass(input).then(result => {
+                        this.predictedLabel = result.label;
+                    })
+                }
+            } else {
+                this.predictedLabel = '';
+            }
+        }
     }
 
     
@@ -44,6 +101,18 @@ class Scratch3TeachableClassifier {
             id: 'teachableClassifier',
             name: 'Teachable Classifier',
             blocks: [
+                {
+                    opcode: 'whenISee',
+                    text: 'when I see [LABEL]',
+                    blockType: BlockType.HAT,
+                    arguments: {
+                        LABEL: {
+                            type: ArgumentType.STRING,
+                            menu: 'LABEL',
+                            defaultValue: ''
+                        }
+                    }
+                },
                 {
                     opcode: 'imageExample',
                     text: 'add example from video with label [LABEL]',
@@ -77,65 +146,47 @@ class Scratch3TeachableClassifier {
                     }
                 }
             ],
+            menus: {
+                LABEL: 'getLabels'
+            }
         };
     }
 
-    toOneHot (inputText) { //Converts a string to a one-hot tensor to be used as input to the classifier
-        let tempArray = [];
-        let oneHotArray = []
-        for (const c of inputText) {
-            tempArray.push(uniqueChars.indexOf(c));
-        }
-        for (let i = 0; i < tempArray.length; i++) {
-            oneHotArray[i] = new Array(vocabSize).fill(0);
-            oneHotArray[i][tempArray[i]] = 1;
-        }
-        return tf.tensor([oneHotArray]);
+    getLabels () {
+        return this.labelList;
+    }
+
+    whenISee (args) {
+        return this.predictedLabel == args.LABEL;
     }
 
     imageExample (args) {
-        if (mobilenetLoaded) {  //check that the mobilenet has loaded
+        if (this.mobilenetModule != null) {
             const frame = this.runtime.ioDevices.video.getFrame({
                 format: Video.FORMAT_IMAGE_DATA,
-                dimensions: [480, 360]
+                dimensions: Scratch3TeachableClassifier.DIMENSIONS
             });
-            const example = mobilenetModule.infer(frame); //add example
+            const example = this.mobilenetModule.infer(frame); //add example
             classifier.addExample(example, args.LABEL);
-        } else {
-            return '[still loading module...]'   //if mobilenet not loaded yet, return "still loading" message
+            if (!this.labelList.includes(args.LABEL)) {
+                this.labelList.push(args.LABEL);
+            }
         }
     }
 
     predictImageLabel () {
-        if (classifier.getNumClasses() > 0) {
-            const wordPromise = new Promise(resolve => {
-                if (mobilenetLoaded) {  //check that the mobilenet has loaded
-                    const frame = this.runtime.ioDevices.video.getFrame({
-                        format: Video.FORMAT_IMAGE_DATA,
-                        dimensions: [480, 360]
-                    });
-                    input = mobilenetModule.infer(frame);   //predict
-                    classifier.predictClass(input).then(result => {
-                        resolve(result.label);
-                        return result.label;
-                    })
-                } else {
-                    resolve('[still loading module...]');    //if mobilenet not loaded yet, return "still loading" message
-                    return '[still loading module...]';
-                }
-            });
-            return wordPromise;
-        }
-        return '[add examples to help me predict!]' //if there aren't any examples yet, return "add examples" message
+        return this.predictedLabel;
     }
 
     clearAll () {
         classifier.clearAllClasses();   //clear all examples
+        this.labelList = [' '];
     }
 
     clearAllWithLabel (args) {
         if (classifier.getClassExampleCount()[args.LABEL] > 0) {
             classifier.clearClass(args.LABEL);  //clear examples with a certain label
+            this.labelList.splice(this.labelList.indexOf(args.LABEL), 1);
         }
     }
 }

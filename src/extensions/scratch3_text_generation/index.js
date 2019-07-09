@@ -19,9 +19,11 @@ let vocabSize = uniqueChars.length;
  */
 class Scratch3TextGeneration {
     constructor (runtime) {
-        this.craziness = 8;
+        this.craziness = 10;
         this.mostRecentChars = '';
         this.source = 'Dr. Seuss';
+
+        this.MAX_GEN_LEN = 200;
     }
 
     
@@ -56,13 +58,19 @@ class Scratch3TextGeneration {
                     disableMonitor: true
                 },
                 {
+                    opcode: 'genNextSentence',
+                    text: 'next sentence',
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true
+                },
+                {
                     opcode: 'setCraziness',
-                    text: 'set craziness to [CRAZINESS]',
+                    text: 'set craziness to [CRAZINESS]%',
                     blockType: BlockType.COMMAND,
                     arguments: {
                         CRAZINESS: {
                             type: ArgumentType.NUMBER,
-                            defaultValue: 8
+                            defaultValue: 10
                         }
                     }
                 },
@@ -108,12 +116,12 @@ class Scratch3TextGeneration {
         return oneHotArray;
     }
 
-    getNext (values, indices, craziness) { //returns the next predicted character based on a stochastically chosen index
-        if (craziness == 0) {
+    getNext (values, indices) { //returns the next predicted character based on a stochastically chosen index
+        if (this.craziness == 0) {
             return uniqueChars[indices[values.indexOf(Math.max(...values))]];
         }
 
-        values = values.map(x => Math.pow(x, 10 - craziness))   //raise all values to the power (10 - craziness) so that they become more or less similar
+        values = values.map(x => Math.pow(x, 10-(MathUtil.clamp(this.craziness, 0, 100)/10)))   //raise all values to the power (10-craziness/10) so they become less similar with lower craziness and more similar with higher craziness
         let nextIndex = 0;
         const add = (a, b) => a + b;
         let sum = values.reduce(add);
@@ -129,34 +137,37 @@ class Scratch3TextGeneration {
         return uniqueChars[nextIndex];  //translate index to character
     }
 
-    processInput (model, seed) {    //ensure that the input seed is the right size to be used as input to the model
-
-        let inputDim = model.layers[0].input.shape[1];
-
-        while (seed.length < inputDim) {    //pad the beginning of the input with stars
-            seed = '*' + seed;
-        }
-        seed = seed.slice(seed.length-inputDim);    //only consider the last inputDim characters
-
-        return seed;
-    }
-
     genWords (args) {
-        return this.generateText(args.LENGTH, args.SEED);
+        const textPromise = new Promise(resolve => {
+            this.generateTextUntilCharReached(args.SEED, [' ', '\n'], args.LENGTH).then(text => {
+                resolve(args.SEED+text);
+                return args.SEED+text;
+            })
+        });
+        return textPromise;
     }
 
     genNextWord (args) {
         const wordPromise = new Promise(resolve => {
-            this.generateText(2, this.mostRecentChars).then(text => {
-                nextWord = text.slice(Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n')));
-                resolve(nextWord);
-                return nextWord;
+            this.generateTextUntilCharReached(this.mostRecentChars, [' ', '\n'], 1).then(text => {
+                resolve(text);
+                return text;
             });
         });
         return wordPromise;
     }
 
-    generateText (length, seedStr) {
+    genNextSentence (args) {
+        const sentencePromise = new Promise(resolve => {
+            this.generateTextUntilCharReached(this.mostRecentChars, ['.', '!', '?'], 1).then(text => {
+                resolve(text);
+                return text;
+            });
+        });
+        return sentencePromise;
+    }
+
+    generateTextUntilCharReached (seedStr, stopChars, len) {
         const textPromise = new Promise(resolve => {    // this function will return a promise
 
             //dictionary mapping user's source choice to a URL to get the file from
@@ -166,47 +177,33 @@ class Scratch3TextGeneration {
                                     'Warriors': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/warriorcats.json',
                                     'Moby Dick': 'https://raw.githubusercontent.com/Katya3141/scratch-vm/text-generation/src/extensions/scratch3_text_generation/models/mobydick.json'};
 
-            const endChars = [':', ',', ';', '-', '/']; //when generating strings, don't end with any of these characters
+            const modelSource = modelSourceDict[this.source];
+            let output = '';
 
-            let craziness = MathUtil.clamp(this.craziness, 0, 10);  //initialize craziness and which model to use, and initialize output to the seed string
-            let modelSource = modelSourceDict[this.source];
-            let output = seedStr;
+            tf.loadLayersModel(modelSource).then(model => {
+                let nextChar = null;
+                const inputDim = model.layers[0].input.shape[1];
+                const paddingSize = Math.max(inputDim - seedStr.length, 0);
+                let seed = this.toOneHot("*".repeat(paddingSize) + seedStr.slice(-inputDim));
+                let counter = 0;
 
-            tf.loadLayersModel(modelSource).then(model => { //load model
-
-                seedStr = this.processInput(model, seedStr);  //make sure the input has the right dimensions
-
-                let w = 0;  //0 words so far, not between words
-                let betweenWords = false;
-
-                while (w < length) { //while more words need to be generated
-                    let seed = this.toOneHot(seedStr);
-
-                    let inputTensor = tf.tensor([seed]);    //create a tensor to use as input to the model
-                    let prediction = model.predict(inputTensor);    //make a prediction
-                    let {values, indices} = tf.topk(prediction, 10);    //create arrays of indices (can be translated to characters) and values (their probabilities) based on the prediction
+                while (counter < len && output.length < 250) {
+                    let inputTensor = tf.tensor([seed]);
+                    let prediction = model.predict(inputTensor);
+                    let {values, indices} = tf.topk(prediction, 10);
                     let valuesArray = values.dataSync();
                     let indicesArray = indices.dataSync();
 
-                    let nextChar = this.getNext(valuesArray, indicesArray, craziness); //choose a next character
+                    nextChar = this.getNext(valuesArray, indicesArray);
 
-                    if (!betweenWords && (nextChar == ' ' || nextChar == '\n')) {   //find spaces between words
-                        w++;
-                        betweenWords = true;
-                    } else if (!(nextChar == ' ' || nextChar == '\n')) {
-                        betweenWords = false;
+                    if (stopChars.includes(nextChar) && output.length > 0) {
+                        counter++;
                     }
-
-                    if (w < length) {
-                        seedStr = seedStr.slice(1);   //make a new seed which includes the new character
-                        seedStr += nextChar;
-
-                        if (w < length - 1 || !endChars.includes(nextChar)) {    //don't end the string with any of the characters in endChars
-                            output += nextChar; //add the new character to the output
-                        }
-                    }
+                    seed.push(this.toOneHot(nextChar)[0]);
+                    seed.shift();
+                    output += nextChar;
                 }
-                this.mostRecentChars = output.slice(-20);
+                this.mostRecentChars = (this.mostRecentChars + output).slice(-20);
                 resolve(output);
                 return output;
             });
