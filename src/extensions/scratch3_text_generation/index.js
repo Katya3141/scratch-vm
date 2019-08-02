@@ -117,7 +117,7 @@ class Scratch3TextGeneration {
     }
 
     getNext (values, indices) { //returns the next predicted character based on a stochastically chosen index
-        if (this.craziness == 0) {
+        if (this.craziness === 0) {
             return uniqueChars[indices[values.indexOf(Math.max(...values))]];
         }
 

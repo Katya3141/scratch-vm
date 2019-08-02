@@ -17,6 +17,8 @@ const MathUtil = require('../util/math-util');
 const StringUtil = require('../util/string-util');
 const VariableUtil = require('../util/variable-util');
 
+const tf = require('@tensorflow/tfjs');
+
 const {loadCostume} = require('../import/load-costume.js');
 const {loadSound} = require('../import/load-sound.js');
 const {deserializeCostume, deserializeSound} = require('./deserialize-assets.js');
@@ -552,6 +554,8 @@ const serialize = function (runtime, targetId) {
 
     // Assemble extension list
     obj.extensions = Array.from(extensions);
+
+    obj.model = runtime.modelData.classifierData;
 
     // Assemble metadata
     const meta = Object.create(null);
@@ -1216,6 +1220,15 @@ const deserialize = function (json, runtime, zip, isSingleSprite) {
         extensionIDs: new Set(),
         extensionURLs: new Map()
     };
+
+    runtime.modelData = {"imageData": {}, "classifierData": {}};
+
+    if (json.hasOwnProperty("model")) {
+        runtime.modelData.classifierData = json.model;
+        for (let label of Object.keys(json.model)) {
+            runtime.modelData.imageData[label] = [];
+        }
+    }
 
     // First keep track of the current target order in the json,
     // then sort by the layer order property before parsing the targets

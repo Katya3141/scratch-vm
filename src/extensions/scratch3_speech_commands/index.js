@@ -28,6 +28,11 @@ class Scratch3SpeechCommands {
 
         this.stopListening = this.stopListening.bind(this);
         this.runtime.on('PROJECT_STOP_ALL', this.stopListening);
+        this.runtime.on('COMMAND_HEARD', command => {
+            this.runtime.startHats('speechCommands_whenIHear', {
+                COMMAND: command
+            })
+        });
     }
 
     
@@ -43,6 +48,7 @@ class Scratch3SpeechCommands {
                     opcode: 'whenIHear',
                     text: 'when I hear [COMMAND]',
                     blockType: BlockType.HAT,
+                    isEdgeActivated: false,
                     arguments: {
                         COMMAND: {
                             type: ArgumentType.STRING,
@@ -62,6 +68,21 @@ class Scratch3SpeechCommands {
                             defaultValue: 'go'
                         }
                     }
+                },
+                {
+                    opcode: 'getCommand',
+                    text: 'command',
+                    blockType: BlockType.REPORTER
+                },
+                {
+                    opcode: 'startListening',
+                    text: 'start listening',
+                    blockType: BlockType.COMMAND
+                },
+                {
+                    opcode: 'stopListening',
+                    text: 'stop listening',
+                    blockType: BlockType.COMMAND
                 }
             ],
             menus: {
@@ -71,8 +92,7 @@ class Scratch3SpeechCommands {
     }
 
     whenIHear (word) {
-        this.startListening();
-        return this.newCommand == word.COMMAND;  //return true if the previous command was the target word, false otherwise
+        return true;
     }
 
     startListening () {
@@ -83,10 +103,11 @@ class Scratch3SpeechCommands {
                 recognizer.listen(result => {
                     let maxScore = Math.max(...result.scores);
                     let command = recognizer.wordLabels()[result.scores.indexOf(maxScore)];
-                    if (maxScore > 0.8 && command != '_background_noise_' && command != '_unknown_') {  //if it recognized a word with high enough probability, set both commands to that word; otherwise reset newCommand
+                    if (maxScore > 0.8 && command !== '_background_noise_' && command !== '_unknown_') {  //if it recognized a word with high enough probability, set both commands to that word; otherwise reset newCommand
                         console.log(command);
                         this.newCommand = command;
                         this.mostRecentCommand = command;
+                        this.runtime.emit('COMMAND_HEARD', command);
                     } else {
                         this.newCommand = '';
                     }
@@ -107,8 +128,11 @@ class Scratch3SpeechCommands {
     }
 
     justHeard (args) {
-        this.startListening();
-        return (this.mostRecentCommand == args.COMMAND);    //return the most recently heard command
+        return (this.mostRecentCommand === args.COMMAND);    //return the most recently heard command
+    }
+
+    getCommand () {
+        return this.mostRecentCommand;
     }
 }
 module.exports = Scratch3SpeechCommands;
