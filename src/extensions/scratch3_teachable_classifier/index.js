@@ -10,6 +10,7 @@ const Video = require('../../io/video');
 const log = require('../../util/log');
 const tf = require('@tensorflow/tfjs');
 const mobilenet = require('@tensorflow-models/mobilenet');
+const posenet = require('@tensorflow-models/posenet');    //for posenet
 const knnClassifierModule = require('@tensorflow-models/knn-classifier');
 
 /**
@@ -37,22 +38,31 @@ class Scratch3TeachableClassifierBlocks {
 
     constructor (runtime) {
         this.runtime = runtime;
-        this.runtime.nextLabelNumber = 1;
+        this.runtime.modelData.nextLabelNumber = 1;
         this.predictedLabel = null;
         this.labelList = [];
         this.labelListEmpty = true;
         this.mobilenetModule = null;
+        this.posenetModule = null; //for posenet
         this.classifier = knnClassifierModule.create();
 
         this.loadModelFromRuntime();
 
-        mobilenet.load(1, 0.5).then(net => {
+        mobilenet.load(2, 0.5).then(net => {
             this.mobilenetModule = net;
             if (this.runtime.ioDevices) {
                 // Kick off looping the analysis logic.
                 this._loop();
             }
         });
+
+        // posenet.load({multiplier: 0.5}).then(net => {    //for posenet
+        //    this.posenetModule = net;
+        //    if (this.runtime.ioDevices) {
+        //         //  Kick off looping the analysis logic.
+        //        this._loop();
+        //    }
+        // });
 
         /**
          * The last millisecond epoch timestamp that the video stream was
@@ -106,34 +116,33 @@ class Scratch3TeachableClassifierBlocks {
                     dimensions: Scratch3TeachableClassifierBlocks.DIMENSIONS
                 });
                 if (frame) {
-                    input = this.mobilenetModule.infer(frame);   //predict
+                    const input = this.mobilenetModule.infer(frame);   //predict
+                    // if (this.posenetModule) {   //for posenet
+                    //     this.posenetModule.estimateSinglePose(frame, {flipHorizontal:false}).then(result => {
+                    //         input = [];
+                    //         for (let point of result.keypoints) {
+                    //             if (point.score > 0.9) {
+                    //                 input.push(point.position.x);
+                    //                 input.push(point.position.y);
+                    //             } else {
+                    //                 input.push(0);
+                    //                 input.push(0);
+                    //             }
+                    //         }
+                    //         input = tf.tensor2d([input]);
+                    //         this.classifier.predictClass(input).then(result => {
+                    //             this.predictedLabel = result.label;
+                    //         })
+                    //     });
+                    // }
                     this.classifier.predictClass(input).then(result => {
                         this.predictedLabel = result.label;
-                    })
+                    });
                 }
             } else {
                 this.predictedLabel = '';
             }
         }
-    }
-
-    renameLabel (oldName, newName) {
-        let data = {...this.classifier.getClassifierDataset()};  //reset the classifier dataset with the renamed label
-        if (data[oldName]) {
-            data[newName] = data[oldName];
-            delete data[oldName];
-            this.classifier.clearAllClasses();
-            this.classifier.setClassifierDataset(data);
-        }
-
-        this.runtime.modelData.classifierData[newName] = this.runtime.modelData.classifierData[oldName];  //reset the runtime's model data with the new renamed label (to share with GUI)
-        delete this.runtime.modelData.classifierData[oldName];
-
-        this.runtime.modelData.imageData[newName] = this.runtime.modelData.imageData[oldName];  //reset the runtime's model data with the new renamed label (to share with GUI)
-        delete this.runtime.modelData.imageData[oldName];
-
-        this.labelList.splice(this.labelList.indexOf(oldName), 1);  //reset label list with the new renamed label
-        this.labelList.push(newName)
     }
 
     
@@ -147,8 +156,12 @@ class Scratch3TeachableClassifierBlocks {
         return {
             id: 'teachableClassifier',
             name: 'Teachable Classifier',
-            showStatusButton: true,
             blocks: [
+                {
+                    func: 'EDIT_MODEL',
+                    blockType: BlockType.BUTTON,
+                    text: 'Edit Model'
+                },
                 {
                     opcode: 'whenISee',
                     text: 'when I see [LABEL]',
@@ -162,6 +175,24 @@ class Scratch3TeachableClassifierBlocks {
                     }
                 },
                 {
+                    opcode: 'predictImageLabel',
+                    text: 'predict label',
+                    blockType: BlockType.REPORTER
+                },
+                {
+                    opcode: 'controlVideo',
+                    text: 'turn video [STATE]',
+                    blockType: BlockType.COMMAND,
+                    arguments: {
+                        STATE: {
+                            type: ArgumentType.STRING,
+                            menu: 'VIDEO',
+                            defaultValue: 'on'
+                        }
+                    }
+                },
+                '---',
+                {
                     opcode: 'imageExample',
                     text: 'add example with label [LABEL]',
                     blockType: BlockType.COMMAND,
@@ -171,16 +202,6 @@ class Scratch3TeachableClassifierBlocks {
                             defaultValue: 'background'
                         }
                     }
-                },
-                {
-                    opcode: 'predictImageLabel',
-                    text: 'predict label',
-                    blockType: BlockType.REPORTER
-                },
-                {
-                    opcode: 'clearAll',
-                    text: 'clear all examples',
-                    blockType: BlockType.COMMAND
                 },
                 {
                     opcode: 'clearAllWithLabel',
@@ -195,16 +216,9 @@ class Scratch3TeachableClassifierBlocks {
                     }
                 },
                 {
-                    opcode: 'controlVideo',
-                    text: 'turn video [STATE]',
-                    blockType: BlockType.COMMAND,
-                    arguments: {
-                        STATE: {
-                            type: ArgumentType.STRING,
-                            menu: 'VIDEO',
-                            defaultValue: 'on'
-                        }
-                    }
+                    opcode: 'clearAll',
+                    text: 'clear all examples',
+                    blockType: BlockType.COMMAND
                 }
             ],
             menus: {
@@ -238,7 +252,7 @@ class Scratch3TeachableClassifierBlocks {
     }
 
     imageExample (args) {   //take a picture and add it as an example
-        if (this.mobilenetModule !== null) {
+        if (this.mobilenetModule !== null) {  //for posenet
             const frame = this.runtime.ioDevices.video.getFrame({
                 format: Video.FORMAT_IMAGE_DATA,
                 dimensions: Scratch3TeachableClassifierBlocks.DIMENSIONS
@@ -252,21 +266,55 @@ class Scratch3TeachableClassifierBlocks {
     newExamples (images, label) {
         for (let image of images) {
             const example = this.mobilenetModule.infer(image);
-            const exampleArray = tf.div(example, example.norm()).arraySync()[0];
-            this.classifier.addExample(example, label);  //add example to the classifier
-            if (this.labelListEmpty) {
-                this.labelList.splice(this.labelList.indexOf(''), 1);   //edit label list accordingly
-                this.labelListEmpty = false;
-            }
-            if (!this.labelList.includes(label)) {
-                this.labelList.push(label);
-                this.runtime.modelData.imageData[label] = [image];    //update the runtime's model data (to share with the GUI)
-                this.runtime.modelData.classifierData[label] = [exampleArray];
-            } else {
-                this.runtime.modelData.imageData[label].push(image);
-                this.runtime.modelData.classifierData[label].push(exampleArray);
-            }
+            // this.posenetModule.estimateSinglePose(image, {flipHorizontal:false}).then(result => {  //for posenet
+            //     input = [];
+            //     console.log(result.keypoints);
+            //     for (let point of result.keypoints) {
+            //         if (point.score > 0.9) {
+            //             input.push(point.position.x);
+            //             input.push(point.position.y);
+            //         } else {
+            //             input.push(0);
+            //             input.push(0);
+            //         }
+            //     }
+            //    example = tf.tensor2d([input]);
+
+                const exampleArray = tf.div(example, example.norm()).arraySync()[0];
+                this.classifier.addExample(example, label);  //add example to the classifier
+                if (this.labelListEmpty) {
+                    this.labelList.splice(this.labelList.indexOf(''), 1);   //edit label list accordingly
+                    this.labelListEmpty = false;
+                }
+                if (!this.labelList.includes(label)) {
+                    this.labelList.push(label);
+                    this.runtime.modelData.imageData[label] = [image];    //update the runtime's model data (to share with the GUI)
+                    this.runtime.modelData.classifierData[label] = [exampleArray];
+                } else {
+                    this.runtime.modelData.imageData[label].push(image);
+                    this.runtime.modelData.classifierData[label].push(exampleArray);
+                }
+            //});
         }
+    }
+
+    renameLabel (oldName, newName) {
+        let data = {...this.classifier.getClassifierDataset()};  //reset the classifier dataset with the renamed label
+        if (data[oldName]) {
+            data[newName] = data[oldName];
+            delete data[oldName];
+            this.classifier.clearAllClasses();
+            this.classifier.setClassifierDataset(data);
+        }
+
+        this.runtime.modelData.classifierData[newName] = this.runtime.modelData.classifierData[oldName];  //reset the runtime's model data with the new renamed label (to share with GUI)
+        delete this.runtime.modelData.classifierData[oldName];
+
+        this.runtime.modelData.imageData[newName] = this.runtime.modelData.imageData[oldName];  //reset the runtime's model data with the new renamed label (to share with GUI)
+        delete this.runtime.modelData.imageData[oldName];
+
+        this.labelList.splice(this.labelList.indexOf(oldName), 1);  //reset label list with the new renamed label
+        this.labelList.push(newName)
     }
 
     deleteExample (label, exampleNum) {
@@ -309,11 +357,12 @@ class Scratch3TeachableClassifierBlocks {
         this.classifier.clearAllClasses();
         this.labelList = [''];
         this.labelListEmpty = true;
+        this.runtime.modelData.nextLabelNumber = 1;
     }
 
     clearAll () {
         this.clearLocal();
-        this.runtime.modelData = {imageData: {}, classifierData: {}};    //clear runtime's model data
+        this.runtime.modelData = {imageData: {}, classifierData: {}, nextLabelNumber: 1};    //clear runtime's model data
     }
 
     clearAllWithLabel (args) {
