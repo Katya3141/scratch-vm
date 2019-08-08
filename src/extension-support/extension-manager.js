@@ -25,12 +25,7 @@ const builtinExtensions = {
     makeymakey: () => require('../extensions/scratch3_makeymakey'),
     boost: () => require('../extensions/scratch3_boost'),
     gdxfor: () => require('../extensions/scratch3_gdx_for'),
-    teachableClassifier: () => require('../extensions/scratch3_teachable_classifier'),
-    teachableClassifierNN: () => require('../extensions/scratch3_teachable_classifier_nn'),
-    reinforcementLearning: () => require('../extensions/scratch3_reinforcement_learning'),
-    textGeneration: () => require('../extensions/scratch3_text_generation'),
-    speechCommands: () => require('../extensions/scratch3_speech_commands'),
-    weather: () => require('../extensions/scratch3_weather')
+    teachableClassifier: () => require('../extensions/scratch3_teachable_classifier')
 };
 
 /**

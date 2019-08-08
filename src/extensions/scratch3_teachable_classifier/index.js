@@ -10,7 +10,6 @@ const Video = require('../../io/video');
 const log = require('../../util/log');
 const tf = require('@tensorflow/tfjs');
 const mobilenet = require('@tensorflow-models/mobilenet');
-const posenet = require('@tensorflow-models/posenet');    //for posenet
 const knnClassifierModule = require('@tensorflow-models/knn-classifier');
 
 /**
@@ -43,7 +42,6 @@ class Scratch3TeachableClassifierBlocks {
         this.labelList = [];
         this.labelListEmpty = true;
         this.mobilenetModule = null;
-        this.posenetModule = null; //for posenet
         this.classifier = knnClassifierModule.create();
 
         this.loadModelFromRuntime();
@@ -55,14 +53,6 @@ class Scratch3TeachableClassifierBlocks {
                 this._loop();
             }
         });
-
-        // posenet.load({multiplier: 0.5}).then(net => {    //for posenet
-        //    this.posenetModule = net;
-        //    if (this.runtime.ioDevices) {
-        //         //  Kick off looping the analysis logic.
-        //        this._loop();
-        //    }
-        // });
 
         /**
          * The last millisecond epoch timestamp that the video stream was
@@ -117,24 +107,6 @@ class Scratch3TeachableClassifierBlocks {
                 });
                 if (frame) {
                     const input = this.mobilenetModule.infer(frame);   //predict
-                    // if (this.posenetModule) {   //for posenet
-                    //     this.posenetModule.estimateSinglePose(frame, {flipHorizontal:false}).then(result => {
-                    //         input = [];
-                    //         for (let point of result.keypoints) {
-                    //             if (point.score > 0.9) {
-                    //                 input.push(point.position.x);
-                    //                 input.push(point.position.y);
-                    //             } else {
-                    //                 input.push(0);
-                    //                 input.push(0);
-                    //             }
-                    //         }
-                    //         input = tf.tensor2d([input]);
-                    //         this.classifier.predictClass(input).then(result => {
-                    //             this.predictedLabel = result.label;
-                    //         })
-                    //     });
-                    // }
                     this.classifier.predictClass(input).then(result => {
                         this.predictedLabel = result.label;
                     });
@@ -252,7 +224,7 @@ class Scratch3TeachableClassifierBlocks {
     }
 
     imageExample (args) {   //take a picture and add it as an example
-        if (this.mobilenetModule !== null) {  //for posenet
+        if (this.mobilenetModule !== null) {
             const frame = this.runtime.ioDevices.video.getFrame({
                 format: Video.FORMAT_IMAGE_DATA,
                 dimensions: Scratch3TeachableClassifierBlocks.DIMENSIONS
@@ -266,35 +238,20 @@ class Scratch3TeachableClassifierBlocks {
     newExamples (images, label) {
         for (let image of images) {
             const example = this.mobilenetModule.infer(image);
-            // this.posenetModule.estimateSinglePose(image, {flipHorizontal:false}).then(result => {  //for posenet
-            //     input = [];
-            //     console.log(result.keypoints);
-            //     for (let point of result.keypoints) {
-            //         if (point.score > 0.9) {
-            //             input.push(point.position.x);
-            //             input.push(point.position.y);
-            //         } else {
-            //             input.push(0);
-            //             input.push(0);
-            //         }
-            //     }
-            //    example = tf.tensor2d([input]);
-
-                const exampleArray = tf.div(example, example.norm()).arraySync()[0];
-                this.classifier.addExample(example, label);  //add example to the classifier
-                if (this.labelListEmpty) {
-                    this.labelList.splice(this.labelList.indexOf(''), 1);   //edit label list accordingly
-                    this.labelListEmpty = false;
-                }
-                if (!this.labelList.includes(label)) {
-                    this.labelList.push(label);
-                    this.runtime.modelData.imageData[label] = [image];    //update the runtime's model data (to share with the GUI)
-                    this.runtime.modelData.classifierData[label] = [exampleArray];
-                } else {
-                    this.runtime.modelData.imageData[label].push(image);
-                    this.runtime.modelData.classifierData[label].push(exampleArray);
-                }
-            //});
+            const exampleArray = tf.div(example, example.norm()).arraySync()[0];
+            this.classifier.addExample(example, label);  //add example to the classifier
+            if (this.labelListEmpty) {
+                this.labelList.splice(this.labelList.indexOf(''), 1);   //edit label list accordingly
+                this.labelListEmpty = false;
+            }
+            if (!this.labelList.includes(label)) {
+                this.labelList.push(label);
+                this.runtime.modelData.imageData[label] = [image];    //update the runtime's model data (to share with the GUI)
+                this.runtime.modelData.classifierData[label] = [exampleArray];
+            } else {
+                this.runtime.modelData.imageData[label].push(image);
+                this.runtime.modelData.classifierData[label].push(exampleArray);
+            }
         }
     }
 
