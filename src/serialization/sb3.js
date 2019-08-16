@@ -1221,7 +1221,7 @@ const deserialize = function (json, runtime, zip, isSingleSprite) {
         extensionURLs: new Map()
     };
 
-    runtime.modelData = {"imageData": {}, "classifierData": {}};
+    runtime.modelData = {"imageData": {}, "classifierData": {}, "nextLabelNumber": 1};
 
     if (json.hasOwnProperty("model")) {
         runtime.modelData.classifierData = json.model;

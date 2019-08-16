@@ -25,7 +25,8 @@ const builtinExtensions = {
     makeymakey: () => require('../extensions/scratch3_makeymakey'),
     boost: () => require('../extensions/scratch3_boost'),
     gdxfor: () => require('../extensions/scratch3_gdx_for'),
-    teachableClassifier: () => require('../extensions/scratch3_teachable_classifier')
+    teachableClassifier: () => require('../extensions/scratch3_teachable_classifier'),
+    teachableAudioClassifier: () => require('../extensions/scratch3_teachable_audio_classifier')
 };
 
 /**

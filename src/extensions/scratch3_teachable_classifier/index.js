@@ -1,11 +1,7 @@
 const formatMessage = require('format-message');
-const nets = require('nets');
 
 const ArgumentType = require('../../extension-support/argument-type');
 const BlockType = require('../../extension-support/block-type');
-const Cast = require('../../util/cast');
-const MathUtil = require('../../util/math-util');
-const Clone = require('../../util/clone');
 const Video = require('../../io/video');
 const log = require('../../util/log');
 const tf = require('@tensorflow/tfjs');
@@ -27,6 +23,14 @@ class Scratch3TeachableClassifierBlocks {
     }
 
     /**
+     * Size of the label samples array used for debouncing.
+     * @type {number}
+     */
+    static get LABEL_SAMPLES_SIZE () {
+        return 3;
+    }
+
+    /**
      * Dimensions the video stream is analyzed at after its rendered to the
      * sample canvas.
      * @type {Array.<number>}
@@ -37,10 +41,13 @@ class Scratch3TeachableClassifierBlocks {
 
     constructor (runtime) {
         this.runtime = runtime;
-        this.runtime.modelData.nextLabelNumber = 1;
+
         this.predictedLabel = null;
+
         this.labelList = [];
         this.labelListEmpty = true;
+        this.labelSamples = [];
+
         this.mobilenetModule = null;
         this.classifier = knnClassifierModule.create();
 
@@ -61,29 +68,28 @@ class Scratch3TeachableClassifierBlocks {
          */
         this._lastUpdate = null;
 
-        this.runtime.on('PROJECT_LOADED', () => {
+        this.runtime.on('PROJECT_LOADED', () => {   //when a project is loaded, reset all the model data
             this.clearLocal();
             this.loadModelFromRuntime();
         })
 
-        //listen for events emitted from the GUI
+        //listen for model editing events emitted by the modal
+        this.runtime.on('NEW_EXAMPLES', (examples, label) => {
+            this.newExamples(examples, label);
+        });
         this.runtime.on('DELETE_EXAMPLE', (label, exampleNum) => {
             this.deleteExample(label, exampleNum);
         });
-        this.runtime.on('DELETE_LOADED_EXAMPLES', (label) => {
-            this.deleteLoadedExamples(label);
+        this.runtime.on('RENAME_LABEL', (oldName, newName) => {
+            this.renameLabel(oldName, newName);
         });
         this.runtime.on('DELETE_LABEL', (label) => {
             this.clearAllWithLabel({LABEL: label});
         });
-        this.runtime.on('NEW_EXAMPLES', (examples, label) => {
-            this.newExamples(examples, label);
-        });
         this.runtime.on('CLEAR_ALL_LABELS', () => {
-            this.clearAll();
-        });
-        this.runtime.on('RENAME_LABEL', (oldName, newName) => {
-            this.renameLabel(oldName, newName);
+            if (!this.labelListEmpty && confirm('Are you sure you want to clear all labels?')) {    //confirm with alert dialogue before clearing the model
+                this.clearAll();
+            }
         });
     }
 
@@ -105,13 +111,19 @@ class Scratch3TeachableClassifierBlocks {
                     format: Video.FORMAT_IMAGE_DATA,
                     dimensions: Scratch3TeachableClassifierBlocks.DIMENSIONS
                 });
-                if (frame) {
-                    const input = this.mobilenetModule.infer(frame);   //predict
-                    this.classifier.predictClass(input).then(result => {
-                        this.predictedLabel = result.label;
+                if (frame) {    //if taking the picture worked
+                    const input = this.mobilenetModule.infer(frame);   //predict with mobilenet
+                    this.classifier.predictClass(input).then(result => {    //put mobilenet prediction into the knn classifier
+                        this.labelSamples.unshift(result.label);    //sliding window for debouncing
+                        if (this.labelSamples.length > Scratch3TeachableClassifierBlocks.LABEL_SAMPLES_SIZE) {
+                            this.labelSamples.pop();
+                            if (this.labelSamples.every((v, i, arr) => v === arr[0])) { //change the predicted label only if all samples in the window agree
+                                this.predictedLabel = result.label;
+                            }
+                        }
                     });
                 }
-            } else {
+            } else {    //if there's no data, clear the predicted label
                 this.predictedLabel = '';
             }
         }
@@ -122,7 +134,7 @@ class Scratch3TeachableClassifierBlocks {
      * @returns {object} metadata for this extension and its blocks.
      */
     getInfo () {
-        this.runtime.ioDevices.video.enableVideo();
+        this.runtime.ioDevices.video.enableVideo();         //turn on video and make it 50% transparent
         this.runtime.ioDevices.video.setPreviewGhost(50);
 
         return {
@@ -131,12 +143,12 @@ class Scratch3TeachableClassifierBlocks {
             blocks: [
                 {
                     func: 'EDIT_MODEL',
-                    blockType: BlockType.BUTTON,
+                    blockType: BlockType.BUTTON,    //button to open the modal
                     text: 'Edit Model'
                 },
                 {
                     opcode: 'whenISee',
-                    text: 'when I see [LABEL]',
+                    text: 'when [LABEL] seen',
                     blockType: BlockType.HAT,
                     arguments: {
                         LABEL: {
@@ -148,20 +160,8 @@ class Scratch3TeachableClassifierBlocks {
                 },
                 {
                     opcode: 'predictImageLabel',
-                    text: 'predict label',
+                    text: 'guess',
                     blockType: BlockType.REPORTER
-                },
-                {
-                    opcode: 'controlVideo',
-                    text: 'turn video [STATE]',
-                    blockType: BlockType.COMMAND,
-                    arguments: {
-                        STATE: {
-                            type: ArgumentType.STRING,
-                            menu: 'VIDEO',
-                            defaultValue: 'on'
-                        }
-                    }
                 },
                 '---',
                 {
@@ -174,33 +174,15 @@ class Scratch3TeachableClassifierBlocks {
                             defaultValue: 'background'
                         }
                     }
-                },
-                {
-                    opcode: 'clearAllWithLabel',
-                    text: 'clear all examples with label [LABEL]',
-                    blockType: BlockType.COMMAND,
-                    arguments: {
-                        LABEL: {
-                            type: ArgumentType.STRING,
-                            menu: 'LABEL',
-                            defaultValue: ''
-                        }
-                    }
-                },
-                {
-                    opcode: 'clearAll',
-                    text: 'clear all examples',
-                    blockType: BlockType.COMMAND
                 }
             ],
             menus: {
-                LABEL: 'getLabels',
-                VIDEO: ['on', 'off', 'on flipped']
+                LABEL: 'getLabels'  //dynamic labels menu
             }
         };
     }
 
-    loadModelFromRuntime () {
+    loadModelFromRuntime () {   //moves info from the runtime into the classifier, called when a project is loaded
         this.labelList = [];
         let classifierData = {...this.runtime.modelData.classifierData};
         for (let label of Object.keys(classifierData)) {
@@ -209,7 +191,7 @@ class Scratch3TeachableClassifierBlocks {
             this.labelListEmpty = false;
         }
         if (this.labelListEmpty) {
-            this.labelList.push('');
+            this.labelList.push('');    //if the label list is empty, fill it with an empty string
         }
         this.classifier.clearAllClasses();
         this.classifier.setClassifierDataset({...classifierData});
@@ -235,7 +217,7 @@ class Scratch3TeachableClassifierBlocks {
         }
     }
 
-    newExamples (images, label) {
+    newExamples (images, label) {   //add examples for a label
         for (let image of images) {
             const example = this.mobilenetModule.infer(image);
             const exampleArray = tf.div(example, example.norm()).arraySync()[0];
@@ -255,7 +237,7 @@ class Scratch3TeachableClassifierBlocks {
         }
     }
 
-    renameLabel (oldName, newName) {
+    renameLabel (oldName, newName) {    //rename a label
         let data = {...this.classifier.getClassifierDataset()};  //reset the classifier dataset with the renamed label
         if (data[oldName]) {
             data[newName] = data[oldName];
@@ -274,35 +256,26 @@ class Scratch3TeachableClassifierBlocks {
         this.labelList.push(newName)
     }
 
-    deleteExample (label, exampleNum) {
-        this.runtime.modelData.imageData[label].splice(exampleNum, 1);
-        this.runtime.modelData.classifierData[label].splice(exampleNum - this.runtime.modelData.imageData[label].length - 1, 1);    //imageData[label].length is ONLY the length of the NEW examples (not the saved and then loaded ones!)
-
+    deleteExample (label, exampleNum) { //delete an example (or all loaded examples, if exampleNum === -1)
         let data = {...this.classifier.getClassifierDataset()};  //reset the classifier dataset with the deleted example
         let labelExamples = data[label].arraySync();
-        labelExamples.splice(exampleNum - this.runtime.modelData.imageData[label].length - 1, 1);   //imageData[label].length is ONLY the length of the NEW examples (not the saved and then loaded ones!)
-        if (labelExamples.length > 0) {
-            data[label] = tf.tensor(labelExamples);
-            this.classifier.clearAllClasses();
-            this.classifier.setClassifierDataset(data);
+
+        if (exampleNum === -1) {    //if this is true, delete all the loaded examples
+            let numLoadedExamples = this.runtime.modelData.classifierData[label].length - this.runtime.modelData.imageData[label].length;   //imageData[label].length is ONLY the length of the NEW examples (not the saved and then loaded ones!)
+            this.runtime.modelData.classifierData[label].splice(0, numLoadedExamples);
+            labelExamples.splice(0, numLoadedExamples);
         } else {
-            this.classifier.clearClass(label);
+            this.runtime.modelData.imageData[label].splice(exampleNum, 1);
+            this.runtime.modelData.classifierData[label].splice(exampleNum - this.runtime.modelData.imageData[label].length - 1, 1);    //imageData[label].length is ONLY the length of the NEW examples (not the saved and then loaded ones!)
+            labelExamples.splice(exampleNum - this.runtime.modelData.imageData[label].length - 1, 1);   //imageData[label].length is ONLY the length of the NEW examples (not the saved and then loaded ones!)
         }
-    }
 
-    deleteLoadedExamples (label) {
-        let numLoadedExamples = this.runtime.modelData.classifierData[label].length - this.runtime.modelData.imageData[label].length;   //imageData[label].length is ONLY the length of the NEW examples (not the saved and then loaded ones!)
-        this.runtime.modelData.classifierData[label].splice(0, numLoadedExamples);
-
-        let data = {...this.classifier.getClassifierDataset()};  //reset the classifier dataset with the deleted examples
-        let labelExamples = data[label].arraySync();
-        labelExamples.splice(0, numLoadedExamples);
         if (labelExamples.length > 0) {
             data[label] = tf.tensor(labelExamples);
             this.classifier.clearAllClasses();
             this.classifier.setClassifierDataset(data);
         } else {
-            this.classifier.clearClass(label);
+            this.classifier.clearClass(label);  //if there are no more examples for this label, don't consider it in the classifier anymore (but keep it in labelList and the runtime model data)
         }
     }
 
@@ -310,39 +283,29 @@ class Scratch3TeachableClassifierBlocks {
         return this.predictedLabel;
     }
 
-    clearLocal () {
+    clearLocal () { //clear all data stored in the classifier and label list
         this.classifier.clearAllClasses();
         this.labelList = [''];
         this.labelListEmpty = true;
-        this.runtime.modelData.nextLabelNumber = 1;
     }
 
-    clearAll () {
+    clearAll () {   //call clearLocal, but also clear all data stored in the runtime
         this.clearLocal();
         this.runtime.modelData = {imageData: {}, classifierData: {}, nextLabelNumber: 1};    //clear runtime's model data
     }
 
-    clearAllWithLabel (args) {
+    clearAllWithLabel (args) {  //clear all examples with a given label
         if (this.labelList.includes(args.LABEL)) {
             if (this.classifier.getClassExampleCount()[args.LABEL] > 0) {
-                this.classifier.clearClass(args.LABEL);  //clear examples with a certain label in the classifier
+                this.classifier.clearClass(args.LABEL);  //remove label from the classifier
             }
             this.labelList.splice(this.labelList.indexOf(args.LABEL), 1);   //remove label from labelList
-            delete this.runtime.modelData.classifierData[args.LABEL];  //remove label in the runtime's model data (to share with the GUI)
+            delete this.runtime.modelData.classifierData[args.LABEL];  //remove label from the runtime's model data (to share with the GUI)
             delete this.runtime.modelData.imageData[args.LABEL];
             if (this.labelList.length === 0) {  //if the label list is now empty, fill it with an empty string
                 this.labelListEmpty = true;
                 this.labelList.push('');
             }
-        }
-    }
-
-    controlVideo (args) {   //make video on/off/mirrored
-        if (args.STATE === 'off') {
-            this.runtime.ioDevices.video.disableVideo();
-        } else {
-            this.runtime.ioDevices.video.enableVideo();
-            this.runtime.ioDevices.video.mirror = args.STATE === 'on';
         }
     }
 }
